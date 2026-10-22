@@ -1,6 +1,7 @@
 const { exec } = require('child_process');
 const { createWriteStream } = require('fs');
 const { pipeline } = require('stream/promises');
+const { createHash } = require('crypto');
 const os = require('os');
 const path = require('path');
 const pkg = require('../package.json');
@@ -82,6 +83,17 @@ async function main() {
   await pipeline(downloadRes.body, fileStream);
 
   log(`Download complete: ${fileName}`);
+
+  // Verify integrity before executing anything (CWE-345)
+  const expectedChecksum = platformDownloads.sha256;
+  if (!expectedChecksum) {
+    throw new Error(`No sha256 checksum provided for ${platformKey}; refusing to execute unverified file`);
+  }
+  const actualChecksum = createHash('sha256').update(require('fs').readFileSync(filePath)).digest('hex');
+  if (actualChecksum.toLowerCase() !== expectedChecksum.toLowerCase()) {
+    throw new Error(`Checksum mismatch for ${fileName}: expected ${expectedChecksum}, got ${actualChecksum}`);
+  }
+  log('Checksum verified.');
 
   // Install and launch
   if (platform === 'darwin' && fileName.endsWith('.dmg')) {
